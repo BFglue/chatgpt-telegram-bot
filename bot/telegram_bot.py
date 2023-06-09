@@ -37,6 +37,7 @@ class ChatGPTTelegramBot:
         bot_language = self.config['bot_language']
         self.commands = [
             BotCommand(command='help', description=localized_text('help_description', bot_language)),
+            # BotCommand(command='prompt_creator', description=localized_text('prompt_crator_description', bot_language)),
             BotCommand(command='reset', description=localized_text('reset_description', bot_language)),
             BotCommand(command='image', description=localized_text('image_description', bot_language)),
             BotCommand(command='stats', description=localized_text('stats_description', bot_language)),
@@ -63,9 +64,9 @@ class ChatGPTTelegramBot:
                 '\n\n' +
                 '\n'.join(commands_description) +
                 '\n\n' +
-                localized_text('help_text', bot_language)[1] +
-                '\n\n' +
-                localized_text('help_text', bot_language)[2]
+                localized_text('help_text', bot_language)[1]
+                # '\n\n' +
+                # localized_text('help_text', bot_language)[2]
         )
         await update.message.reply_text(help_text, disable_web_page_preview=True)
 
@@ -186,6 +187,28 @@ class ChatGPTTelegramBot:
             message_thread_id=get_thread_id(update),
             text=localized_text('reset_done', self.config['bot_language'])
         )
+
+    async def prompt_creator(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Лайфхак запрос для создания хороших промптов.
+        """
+        if not await is_allowed(self.config, update, context):
+            logging.warning(f'User {update.message.from_user.name} (id: {update.message.from_user.id}) '
+                            f'is not allowed to reset the conversation')
+            await self.send_disallowed_message(update, context)
+            return
+
+        logging.info(f'Resetting the conversation for user {update.message.from_user.name} '
+                     f'(id: {update.message.from_user.id})...')
+
+        chat_id = update.effective_chat.id
+        reset_content = message_text(update.message)
+        self.openai.reset_chat_history(chat_id=chat_id, content=reset_content)
+
+        # await update.effective_message.reply_text(
+        #     message_thread_id=get_thread_id(update),
+        #     text=localized_text('reset_done', self.config['bot_language'])
+        # )
 
     async def image(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
