@@ -5,13 +5,29 @@ import logging
 import os
 
 from uuid import uuid4
-from telegram import BotCommandScopeAllGroupChats, Update, constants
+from telegram import (
+    LabeledPrice, 
+    ShippingOption, 
+    BotCommandScopeAllGroupChats, 
+    Update, 
+    constants
+)
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, InlineQueryResultArticle
 from telegram import InputTextMessageContent, BotCommand
 from telegram.error import RetryAfter, TimedOut
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, \
-    filters, InlineQueryHandler, CallbackQueryHandler, Application, ContextTypes, CallbackContext
-
+from telegram.ext import (
+    ApplicationBuilder, 
+    CommandHandler, 
+    MessageHandler,
+    filters, 
+    InlineQueryHandler, 
+    CallbackQueryHandler, 
+    Application, 
+    ContextTypes, 
+    CallbackContext,
+    PreCheckoutQueryHandler,
+    ShippingQueryHandler,
+)
 from pydub import AudioSegment
 
 from utils import is_group_chat, get_thread_id, message_text, wrap_with_indicator, split_into_chunks, \
@@ -41,7 +57,8 @@ class ChatGPTTelegramBot:
             BotCommand(command='image', description=localized_text('image_description', bot_language)),
             BotCommand(command='stats', description=localized_text('stats_description', bot_language)),
             BotCommand(command='resend', description=localized_text('resend_description', bot_language)),
-            BotCommand(command='help_create_prepromt', description=localized_text('help_create_prepromt_description', bot_language))
+            BotCommand(command='help_create_prepromt', description=localized_text('help_create_prepromt_description', bot_language)),
+            BotCommand(command='payment', description=localized_text('payment', bot_language))
         ]
         self.group_commands = [BotCommand(
             command='chat', description=localized_text('chat_description', bot_language)
@@ -167,6 +184,79 @@ class ChatGPTTelegramBot:
 
         await self.prompt(update=update, context=context)
 
+    async def payment(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Оплата
+        """
+        print('payment')
+        PAYMENT_PROVIDER_TOKEN = '401643678:TEST:2fbb0a2a-0f19-4c77-9fe7-41a7fab0d7de'
+        chat_id = update.message.chat_id
+        title = "Псс КУПИ ТОКЕНОВ"
+        description = "бла-бла-бла \n 4242-4242-4242-4242"
+        # select a payload just for you to recognize its the donation from your bot
+        payload = "Custom-Payload"
+        # In order to get a provider_token see https://core.telegram.org/bots/payments#getting-a-token
+        currency = "RUB"    
+
+        prices = [
+            LabeledPrice("1000 токенов/100р", 100 * 100),
+            # LabeledPrice("10000 токенов/1000р", 1000 * 100),
+            # LabeledPrice("100000 токенов/10000р", 10000 * 100),
+        ]
+
+        # optionally pass need_name=True, need_phone_number=True,
+        # need_email=True, need_shipping_address=True, is_flexible=True
+        await context.bot.send_invoice(
+            chat_id, title, description, payload, PAYMENT_PROVIDER_TOKEN, currency, prices
+        )
+        # keyboard = [
+        #     [
+        #         InlineKeyboardButton("1", 
+        #                             #  callback_data='ONE', 
+        #                             #  switch_inline_query='aetawertawefawe'
+        #                              switch_inline_query_current_chat='bdzbfdzfbzdf' ),
+        #         # InlineKeyboardButton("2", callback_data=str('TWO')),
+        #     ]
+        # ]
+        # reply_markup = InlineKeyboardMarkup(keyboard)
+        # await update.message.reply_text("____________", reply_markup=reply_markup)
+
+    async def shipping_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Answers the ShippingQuery with ShippingOptions"""
+        query = update.shipping_query
+        # check the payload, is this from your bot?
+        if query.invoice_payload != "Custom-Payload":
+            # answer False pre_checkout_query
+            await query.answer(ok=False, error_message="Something went wrong...")
+            return
+
+        # First option has a single LabeledPrice
+        options = [ShippingOption("1", "Shipping Option A", [LabeledPrice("A", 100)])]
+        # second option has an array of LabeledPrice objects
+        price_list = [LabeledPrice("B1", 150), LabeledPrice("B2", 200)]
+        options.append(ShippingOption("2", "Shipping Option B", price_list))
+        await query.answer(ok=True, shipping_options=options)
+
+
+    # after (optional) shipping, it's the pre-checkout
+    async def precheckout_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Answers the PreQecheckoutQuery"""
+        query = update.pre_checkout_query
+        # check the payload, is this from your bot?
+        if query.invoice_payload != "Custom-Payload":
+            # answer False pre_checkout_query
+            await query.answer(ok=False, error_message="Something went wrong...")
+        else:
+            await query.answer(ok=True)
+
+
+    # finally, after contacting the payment provider...
+    async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Confirms the successful payment."""
+        # do something after successfully receiving payment?
+        await update.message.reply_text("Thank you for your payment!")
+
+
     async def help_create_prepromt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         help_create_prepromt
@@ -190,6 +280,7 @@ class ChatGPTTelegramBot:
         )
         # __________________________end Resets the conversation__________________________________
 
+        user_id = update.message.from_user.id
         prompt = str(
             'Я хочу, чтобы ты стал моим создателем промптов. Твоя цель - помочь мне создать наилучшый промпт для моих нужд. Ты, ChatGPT, будешь использовать этот промт и следовать следующему процессу:'
             '1. Первым делом ты спросишь меня, о чем должен быть промпт. Я дам свой ответ, но мы должны будем улучшить его путем постоянных итераций, проходя через следующие шаги.'
@@ -714,6 +805,7 @@ class ChatGPTTelegramBot:
         """
         Handle the callback query from the inline query result
         """
+        print('handle_callback_inline_query')
         callback_data = update.callback_query.data
         user_id = update.callback_query.from_user.id
         inline_message_id = update.callback_query.inline_message_id
@@ -838,6 +930,12 @@ class ChatGPTTelegramBot:
         :param context: Telegram context object
         :param is_inline: Boolean flag for inline queries
         :return: Boolean indicating if the user is allowed to use the bot
+        ----------------------------------------------------------------------------------
+        Проверяет, разрешено ли пользователю использовать бота и находится ли он в рамках своего бюджета.
+        :param update: объект обновления Telegram
+        :param context: объект контекста Telegram
+        :param is_inline: логический флаг для встроенных запросов.
+        :return: логическое значение, указывающее, разрешено ли пользователю использовать бота        
         """
         name = update.inline_query.from_user.name if is_inline else update.message.from_user.name
         user_id = update.inline_query.from_user.id if is_inline else update.message.from_user.id
@@ -906,6 +1004,18 @@ class ChatGPTTelegramBot:
         application.add_handler(CommandHandler('stats', self.stats))
         application.add_handler(CommandHandler('resend', self.resend))
         application.add_handler(CommandHandler('help_create_prepromt', self.help_create_prepromt))
+
+        application.add_handler(CommandHandler('payment', self.payment))
+        # Optional handler if your product requires shipping
+        application.add_handler(ShippingQueryHandler(self.shipping_callback))
+
+        # Pre-checkout handler to final check
+        application.add_handler(PreCheckoutQueryHandler(self.precheckout_callback))
+        # Success! Notify your user!
+        application.add_handler(
+            MessageHandler(filters.SUCCESSFUL_PAYMENT, self.successful_payment_callback)
+        )        
+
         application.add_handler(CommandHandler(
             'chat', self.prompt, filters=filters.ChatType.GROUP | filters.ChatType.SUPERGROUP)
         )
