@@ -5,13 +5,29 @@ import logging
 import os
 
 from uuid import uuid4
-from telegram import BotCommandScopeAllGroupChats, Update, constants
+from telegram import (
+    LabeledPrice, 
+    ShippingOption, 
+    BotCommandScopeAllGroupChats, 
+    Update, 
+    constants
+)
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, InlineQueryResultArticle
 from telegram import InputTextMessageContent, BotCommand
 from telegram.error import RetryAfter, TimedOut
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, \
-    filters, InlineQueryHandler, CallbackQueryHandler, Application, ContextTypes, CallbackContext
-
+from telegram.ext import (
+    ApplicationBuilder, 
+    CommandHandler, 
+    MessageHandler,
+    filters, 
+    InlineQueryHandler, 
+    CallbackQueryHandler, 
+    Application, 
+    ContextTypes, 
+    CallbackContext,
+    PreCheckoutQueryHandler,
+    ShippingQueryHandler,
+)
 from pydub import AudioSegment
 
 from utils import is_group_chat, get_thread_id, message_text, wrap_with_indicator, split_into_chunks, \
@@ -41,7 +57,9 @@ class ChatGPTTelegramBot:
             BotCommand(command='reset', description=localized_text('reset_description', bot_language)),
             BotCommand(command='image', description=localized_text('image_description', bot_language)),
             BotCommand(command='stats', description=localized_text('stats_description', bot_language)),
-            BotCommand(command='resend', description=localized_text('resend_description', bot_language))
+            BotCommand(command='resend', description=localized_text('resend_description', bot_language)),
+            BotCommand(command='help_create_prepromt', description=localized_text('help_create_prepromt_description', bot_language)),
+            BotCommand(command='payment', description=localized_text('payment', bot_language))
         ]
         self.group_commands = [BotCommand(
             command='chat', description=localized_text('chat_description', bot_language)
@@ -166,6 +184,236 @@ class ChatGPTTelegramBot:
             message.text = self.last_message.pop(chat_id)
 
         await self.prompt(update=update, context=context)
+
+    async def payment(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Оплата
+        """
+        print('payment')
+        PAYMENT_PROVIDER_TOKEN = '401643678:TEST:2fbb0a2a-0f19-4c77-9fe7-41a7fab0d7de'
+        chat_id = update.message.chat_id
+        title = "Псс КУПИ ТОКЕНОВ"
+        description = "бла-бла-бла \n 4242-4242-4242-4242"
+        # select a payload just for you to recognize its the donation from your bot
+        payload = "Custom-Payload"
+        # In order to get a provider_token see https://core.telegram.org/bots/payments#getting-a-token
+        currency = "RUB"    
+
+        prices = [
+            LabeledPrice("1000 токенов/100р", 100 * 100),
+            # LabeledPrice("10000 токенов/1000р", 1000 * 100),
+            # LabeledPrice("100000 токенов/10000р", 10000 * 100),
+        ]
+
+        # optionally pass need_name=True, need_phone_number=True,
+        # need_email=True, need_shipping_address=True, is_flexible=True
+        await context.bot.send_invoice(
+            chat_id, title, description, payload, PAYMENT_PROVIDER_TOKEN, currency, prices
+        )
+        # keyboard = [
+        #     [
+        #         InlineKeyboardButton("1", 
+        #                             #  callback_data='ONE', 
+        #                             #  switch_inline_query='aetawertawefawe'
+        #                              switch_inline_query_current_chat='bdzbfdzfbzdf' ),
+        #         # InlineKeyboardButton("2", callback_data=str('TWO')),
+        #     ]
+        # ]
+        # reply_markup = InlineKeyboardMarkup(keyboard)
+        # await update.message.reply_text("____________", reply_markup=reply_markup)
+
+    async def shipping_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Answers the ShippingQuery with ShippingOptions"""
+        query = update.shipping_query
+        # check the payload, is this from your bot?
+        if query.invoice_payload != "Custom-Payload":
+            # answer False pre_checkout_query
+            await query.answer(ok=False, error_message="Something went wrong...")
+            return
+
+        # First option has a single LabeledPrice
+        options = [ShippingOption("1", "Shipping Option A", [LabeledPrice("A", 100)])]
+        # second option has an array of LabeledPrice objects
+        price_list = [LabeledPrice("B1", 150), LabeledPrice("B2", 200)]
+        options.append(ShippingOption("2", "Shipping Option B", price_list))
+        await query.answer(ok=True, shipping_options=options)
+
+
+    # after (optional) shipping, it's the pre-checkout
+    async def precheckout_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Answers the PreQecheckoutQuery"""
+        query = update.pre_checkout_query
+        # check the payload, is this from your bot?
+        if query.invoice_payload != "Custom-Payload":
+            # answer False pre_checkout_query
+            await query.answer(ok=False, error_message="Something went wrong...")
+        else:
+            await query.answer(ok=True)
+
+
+    # finally, after contacting the payment provider...
+    async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Confirms the successful payment."""
+        # do something after successfully receiving payment?
+        await update.message.reply_text("Thank you for your payment!")
+
+
+    async def help_create_prepromt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        help_create_prepromt
+        """
+        # __________________________Resets the conversation__________________________________
+        if not await is_allowed(self.config, update, context):
+            logging.warning(f'User {update.message.from_user.name} (id: {update.message.from_user.id}) '
+                            f'is not allowed to reset the conversation')
+            await self.send_disallowed_message(update, context)
+            return
+
+        logging.info(f'Resetting the conversation for user {update.message.from_user.name} '
+                     f'(id: {update.message.from_user.id})...')
+
+        chat_id = update.effective_chat.id
+        reset_content = message_text(update.message)
+        self.openai.reset_chat_history(chat_id=chat_id, content=reset_content)
+        await update.effective_message.reply_text(
+            message_thread_id=get_thread_id(update),
+            text=localized_text('reset_done', self.config['bot_language'])
+        )
+        # __________________________end Resets the conversation__________________________________
+
+        user_id = update.message.from_user.id
+        prompt = str(
+            'Я хочу, чтобы ты стал моим создателем промптов. Твоя цель - помочь мне создать наилучшый промпт для моих нужд. Ты, ChatGPT, будешь использовать этот промт и следовать следующему процессу:'
+            '1. Первым делом ты спросишь меня, о чем должен быть промпт. Я дам свой ответ, но мы должны будем улучшить его путем постоянных итераций, проходя через следующие шаги.'
+            '2. На основе моего ответа ты создашь 3 раздела. Первый - Пересмотренный промпт. (предоставь твою версию переписанного промпта. Она должна быть четкой, краткой и легко понятной для тебя), Второй - Предложения. (представь предложения о том, какие детали следует включить в промпт, чтобы улучшить ее). И Третий раздел - Вопросы. (задай мне любые вопросы, касающиеся того, какая дополнительная информация требуется от меня для улучшения промта).'
+            '3. Мы продолжим этот итерационный процесс: я буду предоставлять тебе дополнительную информацию, а ты будешь обновлять промт в разделе "Пересмотренный промпт", пока она не будет завершена.'
+            'Наша цель - сделать идеальный промпт, который я смогу вписать в ChatGPT для того, чтобы получить самый качественный вариант ответа.'            
+        )
+
+        try:
+            total_tokens = 0
+
+            if self.config['stream']:
+                await update.effective_message.reply_chat_action(
+                    action=constants.ChatAction.TYPING,
+                    message_thread_id=get_thread_id(update)
+                )
+
+                stream_response = self.openai.get_chat_response_stream(chat_id=chat_id, query=prompt)
+                i = 0
+                prev = ''
+                sent_message = None
+                backoff = 0
+                stream_chunk = 0
+
+                async for content, tokens in stream_response:
+                    if len(content.strip()) == 0:
+                        continue
+
+                    stream_chunks = split_into_chunks(content)
+                    if len(stream_chunks) > 1:
+                        content = stream_chunks[-1]
+                        if stream_chunk != len(stream_chunks) - 1:
+                            stream_chunk += 1
+                            try:
+                                await edit_message_with_retry(context, chat_id, str(sent_message.message_id),
+                                                              stream_chunks[-2])
+                            except:
+                                pass
+                            try:
+                                sent_message = await update.effective_message.reply_text(
+                                    message_thread_id=get_thread_id(update),
+                                    text=content if len(content) > 0 else "..."
+                                )
+                            except:
+                                pass
+                            continue
+
+                    cutoff = get_stream_cutoff_values(update, content)
+                    cutoff += backoff
+
+                    if i == 0:
+                        try:
+                            if sent_message is not None:
+                                await context.bot.delete_message(chat_id=sent_message.chat_id,
+                                                                 message_id=sent_message.message_id)
+                            sent_message = await update.effective_message.reply_text(
+                                message_thread_id=get_thread_id(update),
+                                reply_to_message_id=get_reply_to_message_id(self.config, update),
+                                text=content
+                            )
+                        except:
+                            continue
+
+                    elif abs(len(content) - len(prev)) > cutoff or tokens != 'not_finished':
+                        prev = content
+
+                        try:
+                            use_markdown = tokens != 'not_finished'
+                            await edit_message_with_retry(context, chat_id, str(sent_message.message_id),
+                                                          text=content, markdown=use_markdown)
+
+                        except RetryAfter as e:
+                            backoff += 5
+                            await asyncio.sleep(e.retry_after)
+                            continue
+
+                        except TimedOut:
+                            backoff += 5
+                            await asyncio.sleep(0.5)
+                            continue
+
+                        except Exception:
+                            backoff += 5
+                            continue
+
+                        await asyncio.sleep(0.01)
+
+                    i += 1
+                    if tokens != 'not_finished':
+                        total_tokens = int(tokens)
+
+            else:
+                async def _reply():
+                    nonlocal total_tokens
+                    response, total_tokens = await self.openai.get_chat_response(chat_id=chat_id, query=prompt)
+
+                    # Split into chunks of 4096 characters (Telegram's message limit)
+                    chunks = split_into_chunks(response)
+
+                    for index, chunk in enumerate(chunks):
+                        try:
+                            await update.effective_message.reply_text(
+                                message_thread_id=get_thread_id(update),
+                                reply_to_message_id=get_reply_to_message_id(self.config,
+                                                                            update) if index == 0 else None,
+                                text=chunk,
+                                parse_mode=constants.ParseMode.MARKDOWN
+                            )
+                        except Exception:
+                            try:
+                                await update.effective_message.reply_text(
+                                    message_thread_id=get_thread_id(update),
+                                    reply_to_message_id=get_reply_to_message_id(self.config,
+                                                                                update) if index == 0 else None,
+                                    text=chunk
+                                )
+                            except Exception as exception:
+                                raise exception
+
+                await wrap_with_indicator(update, context, _reply, constants.ChatAction.TYPING)
+
+            add_chat_request_to_usage_tracker(self.usage, self.config, user_id, total_tokens)
+
+        except Exception as e:
+            logging.exception(e)
+            await update.effective_message.reply_text(
+                message_thread_id=get_thread_id(update),
+                reply_to_message_id=get_reply_to_message_id(self.config, update),
+                text=f"{localized_text('chat_fail', self.config['bot_language'])} {str(e)}",
+                parse_mode=constants.ParseMode.MARKDOWN
+            )
+
 
     async def reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -389,6 +637,7 @@ class ChatGPTTelegramBot:
         chat_id = update.effective_chat.id
         user_id = update.message.from_user.id
         prompt = message_text(update.message)
+        print('promt', prompt)
         self.last_message[chat_id] = prompt
 
         if is_group_chat(update):
@@ -579,6 +828,7 @@ class ChatGPTTelegramBot:
         """
         Handle the callback query from the inline query result
         """
+        print('handle_callback_inline_query')
         callback_data = update.callback_query.data
         user_id = update.callback_query.from_user.id
         inline_message_id = update.callback_query.inline_message_id
@@ -703,6 +953,12 @@ class ChatGPTTelegramBot:
         :param context: Telegram context object
         :param is_inline: Boolean flag for inline queries
         :return: Boolean indicating if the user is allowed to use the bot
+        ----------------------------------------------------------------------------------
+        Проверяет, разрешено ли пользователю использовать бота и находится ли он в рамках своего бюджета.
+        :param update: объект обновления Telegram
+        :param context: объект контекста Telegram
+        :param is_inline: логический флаг для встроенных запросов.
+        :return: логическое значение, указывающее, разрешено ли пользователю использовать бота        
         """
         name = update.inline_query.from_user.name if is_inline else update.message.from_user.name
         user_id = update.inline_query.from_user.id if is_inline else update.message.from_user.id
@@ -770,6 +1026,19 @@ class ChatGPTTelegramBot:
         application.add_handler(CommandHandler('start', self.help))
         application.add_handler(CommandHandler('stats', self.stats))
         application.add_handler(CommandHandler('resend', self.resend))
+        application.add_handler(CommandHandler('help_create_prepromt', self.help_create_prepromt))
+
+        application.add_handler(CommandHandler('payment', self.payment))
+        # Optional handler if your product requires shipping
+        application.add_handler(ShippingQueryHandler(self.shipping_callback))
+
+        # Pre-checkout handler to final check
+        application.add_handler(PreCheckoutQueryHandler(self.precheckout_callback))
+        # Success! Notify your user!
+        application.add_handler(
+            MessageHandler(filters.SUCCESSFUL_PAYMENT, self.successful_payment_callback)
+        )        
+
         application.add_handler(CommandHandler(
             'chat', self.prompt, filters=filters.ChatType.GROUP | filters.ChatType.SUPERGROUP)
         )

@@ -15,6 +15,10 @@ class UsageTracker:
     Enables tracking of daily/monthly usage per user.
     User files are stored as JSON in /usage_logs directory.
     JSON example:
+    ---------------------------------------------------------
+    Позволяет отслеживать ежедневное/ежемесячное использование для каждого пользователя.
+    Пользовательские файлы хранятся в формате JSON в каталоге /usage_logs.
+    Пример JSON:    
     {
         "user_name": "@user_name",
         "current_cost": {
@@ -47,6 +51,12 @@ class UsageTracker:
         :param user_id: Telegram ID of the user
         :param user_name: Telegram user name
         :param logs_dir: path to directory of usage logs, defaults to "usage_logs"
+        -----------------------------------------------------------------------------
+        Инициализирует UsageTracker для пользователя с текущей датой.
+        Загружает данные об использовании из файла журнала использования.
+        :param user_id: Telegram ID пользователя
+        :param user_name: имя пользователя Telegram
+        :param logs_dir: путь к каталогу журналов использования, по умолчанию "usage_logs"        
         """
         self.user_id = user_id
         self.logs_dir = logs_dir
