@@ -40,7 +40,9 @@
         "try_again":"Пожалуйста, повторите попытку позже",
         "answer_with_chatgpt":"Ответить с помощью ChatGPT",
         "ask_chatgpt":"Спросить ChatGPT",
-        "loading":"Загрузка..."
+        "loading":"Загрузка...",
+        "help_create_prepromt_description":"Создать препромт",
+        "payment":"оплата"
     },
     "en": {
         "help_description":"Show help message",
