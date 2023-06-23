@@ -53,12 +53,11 @@ class ChatGPTTelegramBot:
         bot_language = self.config['bot_language']
         self.commands = [
             BotCommand(command='help', description=localized_text('help_description', bot_language)),
-            # BotCommand(command='prompt_creator', description=localized_text('prompt_crator_description', bot_language)),
+            BotCommand(command='prompt_helper', description=localized_text('prompt_helper_description', bot_language)),
             BotCommand(command='reset', description=localized_text('reset_description', bot_language)),
             BotCommand(command='image', description=localized_text('image_description', bot_language)),
             BotCommand(command='stats', description=localized_text('stats_description', bot_language)),
             BotCommand(command='resend', description=localized_text('resend_description', bot_language)),
-            BotCommand(command='help_create_prepromt', description=localized_text('help_create_prepromt_description', bot_language)),
             BotCommand(command='payment', description=localized_text('payment', bot_language))
         ]
         self.group_commands = [BotCommand(
@@ -258,9 +257,9 @@ class ChatGPTTelegramBot:
         await update.message.reply_text("Thank you for your payment!")
 
 
-    async def help_create_prepromt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def prompt_helper(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
-        help_create_prepromt
+        prompt_helper
         """
         # __________________________Resets the conversation__________________________________
         if not await is_allowed(self.config, update, context):
@@ -277,17 +276,18 @@ class ChatGPTTelegramBot:
         self.openai.reset_chat_history(chat_id=chat_id, content=reset_content)
         await update.effective_message.reply_text(
             message_thread_id=get_thread_id(update),
-            text=localized_text('reset_done', self.config['bot_language'])
+            text=localized_text('prompt_helper_info_message', self.config['bot_language'])
         )
         # __________________________end Resets the conversation__________________________________
 
         user_id = update.message.from_user.id
         prompt = str(
             'Я хочу, чтобы ты стал моим создателем промптов. Твоя цель - помочь мне создать наилучшый промпт для моих нужд. Ты, ChatGPT, будешь использовать этот промт и следовать следующему процессу:'
-            '1. Первым делом ты спросишь меня, о чем должен быть промпт. Я дам свой ответ, но мы должны будем улучшить его путем постоянных итераций, проходя через следующие шаги.'
+            '1. На первой итерации ты задашь мне только один вопрос "О чем должен быть промпт?" и больше ничего. Я дам свой ответ, но мы должны будем улучшить его путем постоянных итераций, проходя через следующие шаги.'
             '2. На основе моего ответа ты создашь 3 раздела. Первый - Пересмотренный промпт. (предоставь твою версию переписанного промпта. Она должна быть четкой, краткой и легко понятной для тебя), Второй - Предложения. (представь предложения о том, какие детали следует включить в промпт, чтобы улучшить ее). И Третий раздел - Вопросы. (задай мне любые вопросы, касающиеся того, какая дополнительная информация требуется от меня для улучшения промта).'
             '3. Мы продолжим этот итерационный процесс: я буду предоставлять тебе дополнительную информацию, а ты будешь обновлять промт в разделе "Пересмотренный промпт", пока она не будет завершена.'
-            'Наша цель - сделать идеальный промпт, который я смогу вписать в ChatGPT для того, чтобы получить самый качественный вариант ответа.'            
+            'Наша цель - сделать идеальный промпт, который я смогу вписать в ChatGPT для того, чтобы получить самый качественный вариант ответа.'
+            '4. На первой итерации задай только один вопрос "О чем должен быть промпт?"'
         )
 
         try:
@@ -1026,7 +1026,7 @@ class ChatGPTTelegramBot:
         application.add_handler(CommandHandler('start', self.help))
         application.add_handler(CommandHandler('stats', self.stats))
         application.add_handler(CommandHandler('resend', self.resend))
-        application.add_handler(CommandHandler('help_create_prepromt', self.help_create_prepromt))
+        application.add_handler(CommandHandler('prompt_helper', self.prompt_helper))
 
         application.add_handler(CommandHandler('payment', self.payment))
         # Optional handler if your product requires shipping
